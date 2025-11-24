@@ -69,7 +69,10 @@ def read_config(config_ws):
 
 
 def classify_ad(link: str, competitors: list) -> str:
-    """判斷廣告是否為競品：link 包含任一 competitor 字串則視為 Competitor。"""
+    """
+    判斷是否為競品：
+    link 包含任一 competitor 字串 → "Competitor"，否則 "Other"
+    """
     if not link:
         return "Other"
 
@@ -81,7 +84,7 @@ def classify_ad(link: str, competitors: list) -> str:
 
 
 def fetch_serper_results(api_key: str, keyword: str) -> dict:
-    """呼叫 Serper.dev API，取得搜尋結果。"""
+    """呼叫 Serper.dev API，取得搜尋結果，並印出 Debug 資訊。"""
     url = "https://google.serper.dev/search"
     headers = {
         "X-API-KEY": api_key,
@@ -95,7 +98,21 @@ def fetch_serper_results(api_key: str, keyword: str) -> dict:
 
     resp = requests.post(url, headers=headers, json=payload, timeout=30)
     resp.raise_for_status()
-    return resp.json()
+    result = resp.json()
+
+    # ==== 這一段是 Debug：看看 Serper 實際回什麼 ====
+    try:
+        print(f"[DEBUG] Keys in response for '{keyword}': {list(result.keys())}")
+        snippet = json.dumps(result, ensure_ascii=False)[:3000]
+        print(f"[DEBUG] Raw Serper response snippet for '{keyword}':\n{snippet}")
+    except Exception as e:
+        print(
+            f"[DEBUG] Failed to pretty-print response for '{keyword}': {e}",
+            file=sys.stderr,
+        )
+    # =================================================
+
+    return result
 
 
 def ensure_headers(ws, headers: list):
@@ -105,7 +122,13 @@ def ensure_headers(ws, headers: list):
         ws.insert_row(headers, 1)
 
 
-def append_ads_to_data_sheet(data_ws, keyword: str, competitors: list, ads: list, today_str: str):
+def append_ads_to_data_sheet(
+    data_ws,
+    keyword: str,
+    competitors: list,
+    ads: list,
+    today_str: str,
+):
     """
     將廣告資料寫入 Data 分頁：
     欄位: Date, Keyword, Position, Status, Title, Description, Link
@@ -145,7 +168,12 @@ def append_ads_to_data_sheet(data_ws, keyword: str, competitors: list, ads: list
             data_ws.append_row(row, value_input_option="RAW")
 
 
-def append_related_searches_to_sheet(kw_ideas_ws, keyword: str, related_searches: list, today_str: str):
+def append_related_searches_to_sheet(
+    kw_ideas_ws,
+    keyword: str,
+    related_searches: list,
+    today_str: str,
+):
     """
     將相關搜尋寫入 Keyword_Ideas 分頁：
     欄位: Keyword, Date
@@ -157,93 +185,4 @@ def append_related_searches_to_sheet(kw_ideas_ws, keyword: str, related_searches
     )
 
     rows = []
-    for item in related_searches:
-        # Serper 回傳 key 叫 "query"
-        query = item.get("query") or item.get("text")
-        if not query:
-            continue
-        rows.append([query, today_str])
-
-    if not rows:
-        return
-
-    try:
-        kw_ideas_ws.append_rows(rows, value_input_option="RAW")
-    except AttributeError:
-        for row in rows:
-            kw_ideas_ws.append_row(row, value_input_option="RAW")
-
-
-def main():
-    print("[INFO] Starting Weekly Ad Monitor script...")
-
-    # 1. 讀取必要環境變數
-    serper_api_key = get_env_var("SERPER_API_KEY")
-    sheet_id = get_env_var("SHEET_ID")
-
-    # 2. 連線 Google Sheets
-    client = get_gsheet_client()
-    sh = client.open_by_key(sheet_id)
-
-    # 3. 取得各工作表
-    try:
-        config_ws = sh.worksheet("Config")
-    except gspread.WorksheetNotFound:
-        print(
-            "[ERROR] Worksheet 'Config' not found. "
-            "Please create it and set A1='Keywords', B1='Competitors'.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    data_ws = get_or_create_worksheet(sh, "Data")
-    kw_ideas_ws = get_or_create_worksheet(sh, "Keyword_Ideas")
-
-    # 4. 讀取設定
-    keywords, competitors = read_config(config_ws)
-
-    if not keywords:
-        print("[ERROR] No keywords to process. Exiting.")
-        sys.exit(0)
-
-    # GitHub Action 在週一 01:00 UTC 跑，這邊日期用 UTC 也會是同一天
-    today_str = datetime.utcnow().strftime("%Y-%m-%d")
-
-    # 5. 逐一 Keyword 呼叫 Serper API，寫入結果
-    for keyword in keywords:
-        print(f"[INFO] Processing keyword: {keyword}")
-
-        try:
-            result = fetch_serper_results(serper_api_key, keyword)
-        except requests.HTTPError as e:
-            print(f"[ERROR] Serper API request failed for keyword '{keyword}': {e}", file=sys.stderr)
-            continue
-        except Exception as e:
-            print(f"[ERROR] Unexpected error while fetching Serper results for '{keyword}': {e}", file=sys.stderr)
-            continue
-
-        # ads 欄位名稱通常是 "ads"
-        ads = result.get("ads") or result.get("ad_results") or []
-        related_searches = (
-            result.get("related_searches")
-            or result.get("relatedSearches")
-            or []
-        )
-
-        if ads:
-            append_ads_to_data_sheet(data_ws, keyword, competitors, ads, today_str)
-            print(f"[INFO] Appended {len(ads)} ads for keyword '{keyword}'.")
-        else:
-            print(f"[INFO] No ads found for keyword '{keyword}'.")
-
-        if related_searches:
-            append_related_searches_to_sheet(kw_ideas_ws, keyword, related_searches, today_str)
-            print(f"[INFO] Appended {len(related_searches)} related searches for keyword '{keyword}'.")
-        else:
-            print(f"[INFO] No related searches found for keyword '{keyword}'.")
-
-    print("[INFO] Weekly Ad Monitor script finished.")
-
-
-if __name__ == "__main__":
-    main()
+    for item in rela
