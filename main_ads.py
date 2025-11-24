@@ -92,9 +92,9 @@ def fetch_serpapi_results(api_key: str, keyword: str) -> dict:
         "api_key": api_key,
         "engine": "google",
         "q": keyword,
-        "gl": "tw",       # 目標國家：台灣
-        "hl": "zh-TW",    # 介面語言：繁中
-        # 若需要可加上 "google_domain": "google.com"
+        # 改用 location 指定地點，先不要設定 gl / hl
+        "location": "Taipei, Taiwan",
+        # 如果之後發現語言都怪怪的，再考慮加上 "hl": "zh-TW"
     }
 
     resp = requests.get(url, params=params, timeout=30)
