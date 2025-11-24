@@ -93,7 +93,7 @@ def fetch_serpapi_results(api_key: str, keyword: str) -> dict:
         "engine": "google",
         "q": keyword,
         "location": "Taipei, Taiwan",
-        # 如需強制繁中可再加 "hl": "zh-TW"
+        # 如果之後覺得語言怪怪的，可再加上 "hl": "zh-TW"
     }
 
     resp = requests.get(url, params=params, timeout=30)
@@ -165,17 +165,19 @@ def append_results_to_data_sheet(
 
 def append_related_searches_to_sheet(
     kw_ideas_ws,
+    seed_keyword: str,
     related_searches: list,
     today_str: str,
 ):
     """
     將相關搜尋寫入 Keyword_Ideas 分頁：
-    欄位: Keyword, Date
-    這裡的 Keyword 就是 related_searches 裡的 query。
+    欄位: SeedKeyword, RelatedKeyword, Date
+    SeedKeyword = 原本搜尋的關鍵字
+    RelatedKeyword = SerpApi 回傳的相關搜尋 query
     """
     ensure_headers(
         kw_ideas_ws,
-        ["Keyword", "Date"],
+        ["SeedKeyword", "RelatedKeyword", "Date"],
     )
 
     rows = []
@@ -183,7 +185,7 @@ def append_related_searches_to_sheet(
         query = item.get("query") or item.get("text")
         if not query:
             continue
-        rows.append([query, today_str])
+        rows.append([seed_keyword, query, today_str])
 
     if not rows:
         return
@@ -277,6 +279,7 @@ def main():
         if related_searches:
             append_related_searches_to_sheet(
                 kw_ideas_ws,
+                keyword,
                 related_searches,
                 today_str,
             )
