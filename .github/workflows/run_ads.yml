@@ -2,8 +2,8 @@ name: Weekly Ad Monitor (SerpApi)
 
 on:
   schedule:
-    - cron: '0 1 * * 1' # 台灣時間每週一早上 9 點 (UTC 01:00)
-  workflow_dispatch: # 手動測試按鈕
+    - cron: '0 1 * * 1,3,5'  # 每週一、三、五 台灣早上9點
+  workflow_dispatch:
 
 jobs:
   build:
