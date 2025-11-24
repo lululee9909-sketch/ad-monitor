@@ -53,8 +53,7 @@ def get_or_create_worksheet(sh, title: str, rows: int = 1000, cols: int = 10):
 
 def read_config(config_ws):
     """從 Config 分頁讀取 Keywords (A 欄) 與 Competitors (B 欄)。"""
-    # 第一列預設是標題，從第二列開始讀
-    keywords_col = config_ws.col_values(1)[1:]
+    keywords_col = config_ws.col_values(1)[1:]  # 跳過標題列
     competitors_col = config_ws.col_values(2)[1:]
 
     keywords = [k.strip() for k in keywords_col if k.strip()]
@@ -83,26 +82,27 @@ def classify_link(link: str, competitors: list) -> str:
     return "Other"
 
 
-def fetch_serper_results(api_key: str, keyword: str) -> dict:
-    """呼叫 Serper.dev API，取得搜尋結果，並印出簡單 Debug 資訊。"""
-    url = "https://google.serper.dev/search"
-    headers = {
-        "X-API-KEY": api_key,
-        "Content-Type": "application/json",
-    }
-    payload = {
+def fetch_serpapi_results(api_key: str, keyword: str) -> dict:
+    """
+    呼叫 SerpApi 的 Google Search API，取得 SERP，
+    用來抓自然結果 (organic_results) 與相關搜尋 (related_searches)。
+    """
+    url = "https://serpapi.com/search.json"
+    params = {
+        "api_key": api_key,
+        "engine": "google",
         "q": keyword,
-        "gl": "tw",
-        "hl": "zh-tw",
+        "location": "Taipei, Taiwan",
+        # 如需強制繁中可再加 "hl": "zh-TW"
     }
 
-    resp = requests.post(url, headers=headers, json=payload, timeout=30)
+    resp = requests.get(url, params=params, timeout=30)
     resp.raise_for_status()
     result = resp.json()
 
-    # Debug：看一下實際有哪些區塊（keys）
+    # Debug：看一下這次回傳有哪些 key（方便排錯）
     try:
-        print(f"[DEBUG] Keys in response for '{keyword}': {list(result.keys())}")
+        print(f"[DEBUG] Keys in SerpApi response for '{keyword}': {list(result.keys())}")
     except Exception as e:
         print(f"[DEBUG] Failed to list keys for '{keyword}': {e}", file=sys.stderr)
 
@@ -134,10 +134,10 @@ def append_results_to_data_sheet(
 
     rows = []
     for idx, item in enumerate(organic_results, start=1):
-        # Serper 通常有 "position"，沒有就用 idx
-        position = item.get("position") or idx
+        # SerpApi 通常有 "position" 或 "rank"，沒有就用 idx
+        position = item.get("position") or item.get("rank") or idx
         title = item.get("title") or ""
-        description = item.get("snippet") or ""
+        description = item.get("snippet") or item.get("description") or ""
         link = item.get("link") or item.get("url") or ""
 
         status = classify_link(link, competitors)
@@ -156,7 +156,6 @@ def append_results_to_data_sheet(
     if not rows:
         return
 
-    # 優先用 append_rows，若版本不支援就退回一列一列 append_row
     try:
         data_ws.append_rows(rows, value_input_option="RAW")
     except AttributeError:
@@ -172,7 +171,7 @@ def append_related_searches_to_sheet(
     """
     將相關搜尋寫入 Keyword_Ideas 分頁：
     欄位: Keyword, Date
-    這裡的 Keyword 就是 relatedSearches 裡的 query。
+    這裡的 Keyword 就是 related_searches 裡的 query。
     """
     ensure_headers(
         kw_ideas_ws,
@@ -197,17 +196,17 @@ def append_related_searches_to_sheet(
 
 
 def main():
-    print("[INFO] Starting Weekly Competitor Monitor (organic results)...")
+    print("[INFO] Starting Organic SERP Monitor (SerpApi)...")
 
     # 1. 讀取必要環境變數
-    serper_api_key = get_env_var("SERPER_API_KEY")
+    serpapi_key = get_env_var("SERPAPI_API_KEY")
     sheet_id = get_env_var("SHEET_ID")
 
     # 2. 連線 Google Sheets
     client = get_gsheet_client()
     sh = client.open_by_key(sheet_id)
 
-    # 3. 取得各工作表
+    # 3. 取得 Config / Data / Keyword_Ideas 分頁
     try:
         config_ws = sh.worksheet("Config")
     except gspread.WorksheetNotFound:
@@ -230,29 +229,33 @@ def main():
 
     today_str = datetime.utcnow().strftime("%Y-%m-%d")
 
-    # 5. 逐一 Keyword 呼叫 Serper API，寫入結果
+    # 5. 逐一 Keyword 呼叫 SerpApi，寫入自然結果 + 相關搜尋
     for keyword in keywords:
-        print(f"[INFO] Processing keyword: {keyword}")
+        print(f"[INFO] Processing keyword (organic): {keyword}")
 
         try:
-            result = fetch_serper_results(serper_api_key, keyword)
+            result = fetch_serpapi_results(serpapi_key, keyword)
         except requests.HTTPError as e:
             print(
-                f"[ERROR] Serper API request failed for keyword '{keyword}': {e}",
+                f"[ERROR] SerpApi request failed for keyword '{keyword}': {e}",
                 file=sys.stderr,
             )
             continue
         except Exception as e:
             print(
-                f"[ERROR] Unexpected error while fetching Serper results for '{keyword}': {e}",
+                f"[ERROR] Unexpected error while fetching SerpApi results for '{keyword}': {e}",
                 file=sys.stderr,
             )
             continue
 
-        organic_results = result.get("organic") or []
+        organic_results = (
+            result.get("organic_results")
+            or result.get("organic")
+            or []
+        )
         related_searches = (
-            result.get("relatedSearches")
-            or result.get("related_searches")
+            result.get("related_searches")
+            or result.get("relatedSearches")
             or []
         )
 
@@ -284,7 +287,7 @@ def main():
         else:
             print(f"[INFO] No related searches found for keyword '{keyword}'.")
 
-    print("[INFO] Weekly Competitor Monitor script finished.")
+    print("[INFO] Organic SERP Monitor script finished.")
 
 
 if __name__ == "__main__":
